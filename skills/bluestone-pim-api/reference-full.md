@@ -340,12 +340,76 @@ const {data} = await getAxiosInstance().post(`/products/{id}/attributes/dictiona
 #### POST /products/{id}/attributes/dictionary/{definitionId}/values
 *Set values for dictionary attribute of product.*
 
-**Permission:** `[{'accessType': 'UPDATE', 'module': 'ATTRIBUTES'}]`  
-**Params:** `id` (path, required), `definitionId` (path, required), `forceVla` (query), `context` (header)  
-**Body:** `SetDictionaryValuesRequest`  
+**Permission:** `[{'accessType': 'UPDATE', 'module': 'ATTRIBUTES'}]`
+**Params:** `id` (path, required), `definitionId` (path, required), `forceVla` (query, default false), `context` (header)
+**Body:** `SetDictionaryValuesRequest` — confirmed shape: `{ valueIds: string[] }`
+**⚠️ Replaces the full set** — send existing IDs + new ID together, not just the new one.
+**Response:** 204 No Content
 ```typescript
-const {data} = await getAxiosInstance().post(`/products/{id}/attributes/dictionary/{definitionId}/values`, body);
+// Confirmed from DevTools — body is { valueIds: string[] }, replaces full set
+await getAxiosInstance().post(
+    `/api/pim/products/${productId}/attributes/dictionary/${definitionId}/values`,
+    { valueIds: [...existingValueIds, newValueId] },
+    { headers, params: { forceVla: false } }
+);
 ```
+
+#### POST /definitions/dictionary/{id}/values
+*Create a new value in a dictionary attribute definition.*
+
+**Permission:** `ATTRIBUTE_DEFINITIONS`
+**Params:** `id` (path, required), `context` (header, sets language for the label)
+**Body:** `{ value: string (required), number?: string, metadata?: string }`
+**Response:** 201 — new value ID returned in `Resource-Id` response header (not in body)
+```typescript
+const res = await getAxiosInstance().post(
+    `/api/pim/definitions/dictionary/${definitionId}/values`,
+    { value: labelText },
+    { headers }
+);
+const newValueId = res.headers['resource-id']; // header key is lowercase
+```
+
+#### PATCH /definitions/dictionary/{id}/values/{valueId}
+*Update the label or metadata of an existing dictionary value.*
+
+**Permission:** `ATTRIBUTE_DEFINITIONS`
+**Params:** `id` (path), `valueId` (path), `context` (header, sets language for the label)
+**Body:** partial update — wrap each field in `{ value: ... }`:
+```typescript
+// { value: { value: "new label" }, number?: { value: "new-number" }, metadata?: { value: "hex" } }
+await getAxiosInstance().patch(
+    `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`,
+    { value: { value: newLabel } },
+    { headers }
+);
+// Response: 204 No Content
+```
+
+#### DELETE /definitions/dictionary/{id}/values/{valueId}
+*Permanently delete a value from a dictionary attribute definition.*
+
+**Permission:** `ATTRIBUTE_DEFINITIONS`
+**Params:** `id` (path), `valueId` (path)
+**Response:** 202 Accepted (async — deletion may not be immediate)
+```typescript
+await getAxiosInstance().delete(
+    `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`
+);
+```
+
+#### PUT /definitions/dictionary/{id}
+*Replace a dictionary attribute definition (full update).*
+
+**Permission:** `ATTRIBUTE_DEFINITIONS`
+**Body:** `DictionaryAttributeDefinitionDto` — full definition object
+**Response:** 204 No Content
+
+#### PATCH /definitions/dictionary/{id}
+*Partial update — selectedValuesLimit or dictionaryValuesMetadataType only.*
+
+**Body:** `{ selectedValuesLimit?: { value: number|null }, dictionaryValuesMetadataType?: { value: string } }`
+**Response:** 204 No Content
 
 #### POST /products/{id}/attributes/matrix
 *Add matrix attribute to product.*

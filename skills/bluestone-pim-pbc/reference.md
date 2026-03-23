@@ -1,6 +1,6 @@
 # Bluestone PIM External Plugin — Developer Reference
 
-A complete reference for building, registering, and shipping Bluestone PIM UI plugins (PBCs — Plugin-Based Components).
+A complete reference for building, registering, and shipping Bluestone PIM UI plugins (PBCs — Packaged Business Capabilities).
 
 ---
 
@@ -476,8 +476,47 @@ Components seen in use across the template:
 | **Layout** | `ScrollableView`, `LabeledContainer`, `Section` |
 | **Typography** | `CroppedText` |
 | **Buttons** | `ButtonV2`, `TextButton`, `ButtonWithDropdown` |
+
+**ButtonV2 props** (confirmed from type definitions):
+```tsx
+// type is a plain string — NO static ButtonV2.Type enum
+// testId is REQUIRED
+<ButtonV2
+    type="primary"       // 'primary' | 'secondary' | 'clear' | 'danger' | 'text' | 'tertiary'
+    testId="my-button"   // required
+    onClick={(e) => {}}  // required
+    disabled={false}
+>
+    Label
+</ButtonV2>
+```
 | **Actions** | `Action`, `Actions` |
 | **Forms** | `InputFieldV2`, `TextareaV2`, `Checkbox`, `DatePickerV2`, `DateTimeEditorV2`, `InlineEditorV2`, `Switch`, `MarkdownEditor` |
+
+**InputFieldV2 props** (confirmed from type definitions):
+```tsx
+// onChange receives the value string directly — NOT a React event
+<InputFieldV2
+    value={str}
+    onChange={(value: string) => setState(value)}  // string, not event
+    onPressEnter={(value: string) => submit()}      // Enter key — not onKeyDown
+    onPressEsc={() => cancel()}                     // Escape key
+    focusOnMount                                    // use instead of autoFocus
+    placeholder="…"
+    disabled={false}
+/>
+```
+
+**Switch props** (confirmed from type definitions):
+```tsx
+<Switch
+    value={booleanState}           // NOT "checked" — prop is "value"
+    onChange={() => toggle()}      // no argument needed; component calls onChange with no useful args
+    labelOnText="On"               // optional built-in label when on
+    labelOffText="Off"             // optional built-in label when off
+    disabled={false}               // optional
+/>
+```
 | **Selects** | `SelectText` + `SelectOptionText`, `SelectWithIcon` + `SelectOptionWithIcon`, `MultiSelectText` + `MultiSelectOptionText`, `MultiSelectTextWithIcon` + `MultiSelectOptionWithIcon` |
 | **Segmented** | `SegmentedControlV2` + `SegmentedControlV2Option` |
 | **Dropdowns** | `DropDownMenuV2` + `DropDownItem` |
@@ -682,6 +721,55 @@ attrs.map((attr) => {
     if (attr.values?.length)     return attr.values.map(v => selectLabels[v] ?? v).join(', ');
     return '—';
 });
+```
+
+#### Writing dictionary attribute values from a PBC
+
+Two separate operations are needed — creating the value in the definition, then assigning it to the product:
+
+```typescript
+// Step 1: create new value in the dictionary definition
+// Body: { value: string (required), number?: string, metadata?: string }
+// New value ID comes back in the Resource-Id response HEADER (lowercase), not the body
+const res = await getAxiosInstance().post(
+    `/api/pim/definitions/dictionary/${definitionId}/values`,
+    { value: labelText },
+    { headers: { context: languageId, 'context-fallback': 'true' } }
+);
+const newValueId = res.headers['resource-id'];
+
+// Step 2: assign to product — sends the FULL set of valueIds (replaces, not appends)
+// Include all existing dictionary[] IDs plus the new one
+await getAxiosInstance().post(
+    `/api/pim/products/${productId}/attributes/dictionary/${definitionId}/values`,
+    { valueIds: [...existingValueIds, newValueId] },
+    { headers: { context: languageId, 'context-fallback': 'true' }, params: { forceVla: false } }
+);
+// Response: 204 No Content
+```
+
+> **Pitfall:** `POST .../products/.../dictionary/{defId}/values` **replaces** the full value set.
+> Always send existing IDs + the new one — never just the new one alone.
+
+> **Pitfall:** The `Resource-Id` header key is lowercase (`resource-id`). Access as `res.headers['resource-id']`.
+
+To update an existing dictionary value's label:
+```typescript
+// PATCH — wrap the value field in { value: ... }
+await getAxiosInstance().patch(
+    `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`,
+    { value: { value: newLabel } },
+    { headers }
+);
+// Response: 204 No Content
+```
+
+To remove a value from the definition entirely:
+```typescript
+await getAxiosInstance().delete(
+    `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`
+);
+// Response: 202 Accepted (async)
 ```
 
 ### Debugging unknown API paths

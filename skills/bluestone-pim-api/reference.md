@@ -810,6 +810,28 @@ const {data} = await getAxiosInstance().get(`/definitions`);
 **Params:** `id` (path, required), `valueId` (path, required), `context` (header), `context-fallback` (header)
 **Response:** `DictionaryAttributeResponse` — **no `data` wrapper**, object returned directly.
 
+#### POST /definitions/dictionary/{id}/values
+*Create a new value in a dictionary attribute definition.*
+**Body:** `{ value: string (required), number?: string, metadata?: string }`
+**Response:** 201 — new value ID in `Resource-Id` response header (lowercase, not in body)
+
+#### PATCH /definitions/dictionary/{id}/values/{valueId}
+*Update label/metadata of an existing dictionary value.*
+**Body:** `{ value?: { value: string }, number?: { value: string }, metadata?: { value: string } }` (partial — wrap each field)
+**Response:** 204
+
+#### DELETE /definitions/dictionary/{id}/values/{valueId}
+*Permanently delete a value from a dictionary definition.*
+**Response:** 202 Accepted (async)
+
+#### PUT /definitions/dictionary/{id}
+*Full replace of a dictionary attribute definition.*
+**Response:** 204
+
+#### PATCH /definitions/dictionary/{id}
+*Partial update — `selectedValuesLimit` or `dictionaryValuesMetadataType` only.*
+**Response:** 204
+
 **Confirmed response shape:**
 ```typescript
 {
