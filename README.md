@@ -16,6 +16,9 @@ The Bluestone PIM AI DevKit packages the knowledge needed to build Bluestone PIM
 ### Via skills.sh
 
 ```bash
+# Orchestrator — load this first; routes between the two skills below
+npx skills add bluestone-pim/bluestone-pim-ai-devkit@bluestone-pim-orchestrator
+
 # PBC plugin development skill
 npx skills add bluestone-pim/bluestone-pim-ai-devkit@bluestone-pim-pbc
 
@@ -35,7 +38,7 @@ git clone https://github.com/bluestone-pim/bluestone-pim-ai-devkit.git
 
 Then reference the `skills/` directory in your Claude Code project config. Consult the [Claude Code documentation](https://docs.anthropic.com/claude-code) for the current configuration format, as it may evolve.
 
-## Skills Included
+## What's Included
 
 ### `bluestone-pim-pbc`
 
@@ -75,14 +78,29 @@ A complete REST API reference for all Bluestone PIM endpoints a PBC plugin may c
 
 [Full reference](skills/bluestone-pim-api/reference.md)
 
+---
+
+## Orchestrator
+
+The orchestrator is a skill (`skills/bluestone-pim-orchestrator/`) that sits above the two
+skills and handles routing between them. Install and load it the same way as the other skills:
+
+```bash
+npx skills add bluestone-pim/bluestone-pim-ai-devkit@bluestone-pim-orchestrator
+```
+
+It defines:
+- When to use `bluestone-pim-pbc` alone (scaffolding, surface types, component questions)
+- When to use `bluestone-pim-api` alone (endpoint lookups, request shapes)
+- When to use both together (most real PBC work involving API calls)
+- Rules that apply universally regardless of which skill is active
+
 ## Usage Example
 
 Once installed, just describe what you want to build:
 
 ```
-Scaffold a productPanelTab that fetches custom attributes from our
-backend at /api/plugin-api/my-plugin/attributes and displays them
-in a LabeledContainer list.
+Scaffold a productPanelTab that fetches the current product's attributes from the Bluestone PIM API and displays them in a LabeledContainer list.
 ```
 
 Your AI agent will generate code that:
@@ -98,3 +116,9 @@ Your AI agent will generate code that:
 - [UI Component Library](https://ui-external.test.bluestonepim.com/)
 - [Icon Library](https://icons.test.bluestonepim.com/)
 - [Plugin Template Repository](https://bitbucket.org/bluestonepim)
+
+## Contributing
+
+Found an endpoint path or response shape that doesn't match reality?
+Open a PR updating the relevant `.claude/skills/bluestone-pim-api/reference.md` or `reference-full.md`.
+Real-world confirmed shapes are more valuable than spec-derived guesses.

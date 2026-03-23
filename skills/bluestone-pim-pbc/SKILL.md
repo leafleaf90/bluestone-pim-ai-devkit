@@ -27,3 +27,11 @@ Before writing any PBC code, read `reference.md` in full.
 ## Reference material
 See `reference.md` for the complete surface catalogue, props interfaces, component library,
 `providedEnv` API, scaffold patterns, and review checklist.
+
+## Related skills
+When the PBC needs to call any Bluestone PIM API endpoint, always
+also read the bluestone-pim-api skill. That skill contains the full
+endpoint catalogue, correct /api/pim/ path prefixes, request shapes,
+response shapes, and getAxiosInstance() usage examples. Never guess
+an endpoint path — look it up in bluestone-pim-api/reference.md or
+reference-full.md first.

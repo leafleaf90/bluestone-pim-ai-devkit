@@ -2,9 +2,15 @@
 
 Complete API reference for PBC plugin developers. All calls use `getAxiosInstance()` from `@bluestone-ext/plugin-framework`.
 
-**Base URL:** `https://api.test.bluestonepim.com`  
-**Auth:** Handled automatically by `getAxiosInstance()` — never add tokens manually.  
+**Base URL:** `https://api.test.bluestonepim.com`
+**Auth:** Handled automatically by `getAxiosInstance()` — never add tokens manually.
 **Locale header:** Include `context: en` (or the locale key) and `context-fallback: true` on most PIM core calls.
+
+> **IMPORTANT — Response body shapes:**
+> This file documents endpoint paths and response *type names* but many type schemas are not fully detailed.
+> **Do not guess field names.** If an endpoint's response body shape is not shown in the
+> "Confirmed Response Shapes" section at the bottom of this file, flag to the developer
+> that the schema needs verification via browser DevTools → Network tab before shipping.
 
 ---
 
@@ -6822,4 +6828,183 @@ Policies are named fine-grained permission sets used with `RESTRICTED` user type
 | `USER_POLICIES` | GRANT, REVOKE |
 | `USER_GROUP` | READ, ADD, UPDATE, DELETE, GRANT, REVOKE |
 | `DETAILED_PERMISSION` | READ, WRITE |
+
+---
+
+## Confirmed Response Body Shapes
+
+Shapes in this section were verified against live API responses via browser DevTools.
+Only add entries here when the shape has been confirmed — never from assumptions.
+
+---
+
+### `DictionaryAttributeResponse`
+
+**Endpoint:** `GET /api/pim/definitions/dictionary/{definitionId}/values/{valueId}`
+
+The response is the value object directly — **no `data` wrapper**.
+
+```typescript
+interface DictionaryAttributeResponse {
+    id: string;
+    definitionId: string;
+    number: string;
+    lastUpdate: number;
+    createdDate: number;
+    toBeRemoved: boolean;
+    value: {
+        value: {
+            [languageId: string]: string;  // e.g. { "en": "Shoes", "fr": "Chaussures" }
+        };
+    };
+}
+```
+
+**Access pattern:**
+```typescript
+const { data } = await getAxiosInstance().get(
+    `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`,
+    { headers: { context: languageId, 'context-fallback': 'true' } }
+);
+const label = data.value.value[languageId] ?? data.value.value['en'] ?? valueId;
+```
+
+---
+
+### `ListableAttributeDefinitionResponse` — confirmed definition shape
+
+**Endpoint:** `GET /api/pim/definitions`
+Wrapped in `{ data: [...] }`. Key fields:
+
+```typescript
+interface SelectOption {
+    valueId: string;   // ID stored in product attribute values[]
+    value: string;     // human-readable label
+    number: string;
+    metadata?: string; // e.g. hex color "#c6d8b8" for color-type selects
+}
+
+interface AttributeDefinition {
+    id: string;
+    name: string;
+    dataType: 'text' | 'integer' | 'decimal' | 'boolean' | 'date' | 'formatted_text'
+            | 'dictionary' | 'single_select' | 'multi_select' | string;
+    contextAware: boolean;
+    isCompound: boolean;
+    unit?: string;
+    restrictions?: {
+        enum?: {
+            type?: string;           // "color" for color-picker selects
+            values: SelectOption[];  // ALL options — present for single_select / multi_select
+        };
+        range?: { min?: string; max?: string; step?: string };
+    };
+}
+```
+
+**Select/multiselect option labels are embedded in the definition — zero extra API calls required:**
+```typescript
+const selectLabels: Record<string, string> = {};
+definitions.forEach((def) => {
+    if (def.dataType === 'single_select' || def.dataType === 'multi_select') {
+        def.restrictions?.enum?.values?.forEach((opt) => {
+            selectLabels[opt.valueId] = opt.value;
+        });
+    }
+});
+// attr.values[] for select types: attr.values.map(id => selectLabels[id] ?? id)
+```
+
+---
+
+### `ListableAttributeValueAll` — product attributes
+
+**Endpoint:** `GET /api/pim/products/{id}/attributes`
+
+Response wrapped in `{ data: [...] }`.
+
+```typescript
+interface RawAttribute {
+    definitionId: string;
+    // Scalar types (text, number, boolean, date, select, multiselect):
+    values?: string[];
+    // Dictionary type — always opaque IDs, always requires resolution:
+    dictionary?: string[];
+    // Neither field present = attribute exists but has no value set
+}
+
+interface AttributesResponse {
+    data: RawAttribute[];
+}
+```
+
+**Access pattern:**
+```typescript
+const { data } = await getAxiosInstance().get(
+    `/api/pim/products/${productId}/attributes`,
+    { headers: { context: languageId, 'context-fallback': 'true' } }
+);
+const attrs: RawAttribute[] = data.data ?? [];
+```
+
+**Resolving attribute values — correct pattern (dictionary vs select are different):**
+
+> `dictionary[]` values require one API call each.
+> `single_select`/`multi_select` option IDs are in `values[]` and are resolved inline from the
+> definitions list — **no extra API calls**. Never route select values through the dictionary endpoint.
+
+```typescript
+// Step 1: fetch attributes + definitions in parallel
+const [attrsRes, defsRes] = await Promise.all([
+    getAxiosInstance().get(`/api/pim/products/${productId}/attributes`, { headers }),
+    getAxiosInstance().get('/api/pim/definitions', { headers })
+]);
+const attrs: RawAttribute[] = attrsRes.data.data ?? [];
+const defs: AttributeDefinition[] = defsRes.data.data ?? [];
+
+// Step 2: build select label map from definitions (zero extra API calls)
+const selectLabels: Record<string, string> = {};
+defs.forEach((def) => {
+    if (def.dataType === 'single_select' || def.dataType === 'multi_select') {
+        def.restrictions?.enum?.values?.forEach((opt) => {
+            selectLabels[opt.valueId] = opt.value;
+        });
+    }
+});
+
+// Step 3: resolve dictionary values — one call per unique {definitionId, valueId}
+const dictLabels: Record<string, string> = {};
+const pairs: Array<{definitionId: string; valueId: string}> = [];
+const seen = new Set<string>();
+attrs.forEach((attr) => {
+    attr.dictionary?.forEach((valueId) => {
+        const key = `${attr.definitionId}/${valueId}`;
+        if (!seen.has(key)) { seen.add(key); pairs.push({ definitionId: attr.definitionId, valueId }); }
+    });
+});
+await Promise.all(
+    pairs.map(async ({ definitionId, valueId }) => {
+        try {
+            const { data } = await getAxiosInstance().get(
+                `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`,
+                { headers }
+            );
+            // confirmed shape: data.value.value[languageId] — no extra wrapper
+            dictLabels[valueId] = data.value.value[languageId] ?? data.value.value['en'] ?? valueId;
+        } catch { dictLabels[valueId] = valueId; }
+    })
+);
+
+// Step 4: render
+attrs.forEach((attr) => {
+    let display: string;
+    if (attr.dictionary?.length) {
+        display = attr.dictionary.map((id) => dictLabels[id] ?? id).join(', ');
+    } else if (attr.values?.length) {
+        display = attr.values.map((v) => selectLabels[v] ?? v).join(', ');
+    } else {
+        display = '—';
+    }
+});
+```
 | `SSO` | ADMIN |

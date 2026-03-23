@@ -1,6 +1,22 @@
+## API Path Prefixes
+
+The public OpenAPI specs list paths without their runtime prefix (e.g. `/products/{id}`). When calling from a PBC you must prepend the service prefix. Confirmed prefixes:
+
+| Service | Prefix | Notes |
+|---|---|---|
+| PIM core (products, attributes, categories, relations, variants, bundles, assets, catalog) | `/api/pim/` | Confirmed via Network tab — not visible in OpenAPI spec |
+| Tasks | `/api/tasks/` | Documented in `API_REQUESTS.md` |
+| Query builder | `/api/query-builder/` | Documented in `API_REQUESTS.md` |
+| Search | `/api/search/` | Documented in search spec |
+| Media Bank | `/api/media-bank/` | Documented in media-bank spec |
+
+> **If you are unsure of a prefix:** use browser DevTools → Network tab to inspect the path the Bluestone PIM UI calls for that data. That is the authoritative source.
+
+---
+
 ## PIM Core API
 
-> Base URL: `https://api.test.bluestonepim.com`  
+> Paths below are shown **without prefix**. Prepend `/api/pim/` in all PBC calls.
 > Headers: `context: <locale>` (default `en`), `context-fallback: true`
 
 
@@ -790,11 +806,34 @@ const {data} = await getAxiosInstance().get(`/definitions`);
 #### GET /definitions/dictionary/{id}/values/{valueId}
 *Show details of dictionary attribute value.*
 
-**Permission:** `[{'accessType': 'DETAILS', 'module': 'ATTRIBUTE_DEFINITIONS'}]`  
-**Params:** `id` (path, required), `valueId` (path, required), `context` (header), `context-fallback` (header)  
-**Response:** `DictionaryAttributeResponse`  
+**Permission:** `[{'accessType': 'DETAILS', 'module': 'ATTRIBUTE_DEFINITIONS'}]`
+**Params:** `id` (path, required), `valueId` (path, required), `context` (header), `context-fallback` (header)
+**Response:** `DictionaryAttributeResponse` — **no `data` wrapper**, object returned directly.
+
+**Confirmed response shape:**
 ```typescript
-const {data} = await getAxiosInstance().get(`/definitions/dictionary/{id}/values/{valueId}`);
+{
+    id: string;
+    definitionId: string;
+    number: string;
+    lastUpdate: number;
+    createdDate: number;
+    toBeRemoved: boolean;
+    value: {
+        value: {
+            [languageId: string]: string;  // e.g. { "en": "Shoes" }
+        };
+    };
+}
+```
+
+**Access pattern:**
+```typescript
+const { data } = await getAxiosInstance().get(
+    `/api/pim/definitions/dictionary/${definitionId}/values/${valueId}`,
+    { headers: { context: languageId, 'context-fallback': 'true' } }
+);
+const label = data.value.value[languageId] ?? data.value.value['en'] ?? valueId;
 ```
 
 #### GET /definitions/simple
@@ -937,4 +976,88 @@ const {data} = await getAxiosInstance().get(`/relations/{id}`);
 **Response:** `ListableProductConnectionResponse`  
 ```typescript
 const {data} = await getAxiosInstance().get(`/relations/{id}/products/connections`);
+```
+
+---
+
+## Confirmed Response Shapes & Patterns
+
+> Shapes here were verified against live API responses. Do not guess field names —
+> if a type is not listed here, flag it and ask the developer to verify in DevTools first.
+
+### `DictionaryAttributeResponse`
+**Endpoint:** `GET /api/pim/definitions/dictionary/{definitionId}/values/{valueId}`
+No `data` wrapper. Label at `data.value.value[languageId]`.
+
+```typescript
+// response.data shape:
+{
+    id: string;
+    definitionId: string;
+    value: { value: { [languageId: string]: string } };  // e.g. { "en": "Shoes" }
+    toBeRemoved: boolean;
+}
+
+const label = data.value.value[languageId] ?? data.value.value['en'] ?? valueId;
+```
+
+### `ListableAttributeDefinitionResponse` — confirmed definition shape
+
+**Endpoint:** `GET /api/pim/definitions`
+Wrapped in `{ data: [...] }`.
+
+```typescript
+interface SelectOption {
+    valueId: string;   // ID stored in product attribute values[]
+    value: string;     // human-readable label — use this for display
+    number: string;
+    metadata?: string; // optional, e.g. hex color "#c6d8b8" for color-type enums
+}
+
+interface AttributeDefinition {
+    id: string;
+    name: string;
+    number: string;
+    groupId?: string;
+    group?: string;
+    dataType: 'text' | 'integer' | 'decimal' | 'boolean' | 'date' | 'formatted_text'
+            | 'dictionary' | 'single_select' | 'multi_select' | string;
+    contextAware: boolean;
+    isCompound: boolean;
+    toBeRemoved: boolean;
+    readOnly: boolean;
+    unit?: string;
+    restrictions?: {
+        enum?: {
+            type?: string;           // e.g. "color" for color pickers
+            values: SelectOption[];  // all selectable options — present for single_select and multi_select
+        };
+        range?: { min?: string; max?: string; step?: string };
+        text?: { whitespaces?: boolean };
+    };
+}
+```
+
+### `values[]` vs `dictionary[]` in product attributes
+
+| `dataType` | Field used | How to resolve |
+|---|---|---|
+| `dictionary` | `dictionary[]` | `GET /api/pim/definitions/dictionary/{definitionId}/values/{valueId}` — one call per value |
+| `single_select`, `multi_select` | `values[]` | Options are **already in the definition** under `restrictions.enum.values` — no extra API calls |
+| `text`, `integer`, `decimal`, `boolean`, `date`, `formatted_text` | `values[]` | Plain text — display as-is |
+
+**Select/multiselect resolution — no extra API calls needed:**
+```typescript
+// Build valueId -> label map from definitions list (already fetched)
+const selectLabels: Record<string, string> = {};
+definitions.forEach((def) => {
+    if (def.dataType === 'single_select' || def.dataType === 'multi_select') {
+        def.restrictions?.enum?.values?.forEach((opt) => {
+            selectLabels[opt.valueId] = opt.value;
+        });
+    }
+});
+
+// Render: values[] for select types
+attr.values?.map((id) => selectLabels[id] ?? id).join(', ')
 ```
